@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OpenProd → Xero · Supplier bills</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { min-height: 100vh; background: #0b0f1f; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px 24px; overflow-y: auto; }
+  .wrap { width: 560px; max-width: 100%; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .icon { width: 38px; height: 38px; border-radius: 10px; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); display: flex; align-items: center; justify-content: center; }
+  h1 { color: #fff; font-size: 19px; font-weight: 700; margin: 0; }
+  .sub { font-size: 12.5px; color: #8892b0; margin-top: 2px; }
+  .card { background: #141a30; border: 1px solid #232c4d; border-radius: 14px; padding: 26px; margin-top: 18px; }
+  .drop { border: 2px dashed #2f3a60; border-radius: 10px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all .15s; background: #0f1427; color: #8892b0; }
+  .drop.hover { border-color: #f59e0b; background: rgba(245,158,11,0.06); color: #f59e0b; }
+  .drop svg { display: block; margin: 0 auto 10px; }
+  .drop .main { font-size: 14px; }
+  .drop .hint { font-size: 12px; color: #6b7699; margin-top: 4px; opacity: .7; }
+  #file-input { display: none; }
+  .file-info { display: none; margin-top: 14px; font-size: 13px; color: #cbd5e1; background: #0f1427; border: 1px solid #232c4d; border-radius: 8px; padding: 9px 12px; }
+  .file-info strong { color: #fff; }
+  .field { display: none; margin-top: 16px; }
+  .row2 { display: none; gap: 14px; margin-top: 16px; }
+  .row2 > div { flex: 1; }
+  label { font-size: 11px; font-weight: 600; color: #8892b0; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; }
+  select, input[type=text] { width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid #2a3354; background: #0f1427; color: #e2e8f4; font-size: 14px; outline: none; }
+  .btn { display: none; margin-top: 22px; width: 100%; padding: 12px; background: #f59e0b; color: #0b0f1f; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; transition: filter .15s; }
+  .btn:hover { filter: brightness(1.1); }
+  .status { display: none; margin-top: 16px; font-size: 13.5px; border-radius: 8px; padding: 10px 14px; }
+  .status.error { display: block; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.35); color: #fca5a5; }
+  .status.success { display: block; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.35); color: #86efac; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div>
+      <h1>OpenProd → Xero · Supplier bills</h1>
+      <div class="sub">WDC INC — converts the OpenProd Excel export into a Xero-ready import CSV.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="drop" id="drop">
+      <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1"/></svg>
+      <span class="main">Drop your OpenProd Excel export here</span>
+      <div class="hint">or click to select (.xls, .xlsx)</div>
+      <input id="file-input" type="file" accept=".xls,.xlsx">
+    </div>
+
+    <div class="file-info" id="file-info"></div>
+
+    <div class="field" id="sheet-field">
+      <label>Sheet to convert</label>
+      <select id="sheet-select"></select>
+    </div>
+
+    <div class="row2" id="opts">
+      <div>
+        <label>Date format</label>
+        <select id="datefmt">
+          <option value="MM/dd/yyyy">MM/DD/YYYY (US)</option>
+          <option value="dd/MM/yyyy">DD/MM/YYYY (EU)</option>
+        </select>
+      </div>
+      <div>
+        <label>Default TaxType</label>
+        <input type="text" id="taxtype" value="Tax Exempt" placeholder="Tax Exempt">
+      </div>
+    </div>
+
+    <button class="btn" id="convert">Convert &amp; download Xero CSV</button>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<script>
+// ── Xero template columns (exact order + labels) ──
+const XERO_HEADER = ['*ContactName','EmailAddress','POAddressLine1','POAddressLine2','POAddressLine3','POAddressLine4','POCity','PORegion','POPostalCode','POCountry','*InvoiceNumber','*InvoiceDate','*DueDate','Total','InventoryItemCode','Description','*Quantity','*UnitAmount','*AccountCode','*TaxType','TaxAmount','TrackingName1','TrackingOption1','TrackingName2','TrackingOption2','Currency'];
+const SRC_KEYS  = ['contactname','emailaddress','poaddressline1','poaddressline2','poaddressline3','poaddressline4','pocity','poregion','popostalcode','pocountry','invoicenumber','invoicedate','duedate','total','inventoryitemcode','description','quantity','unitamount','accountcode','taxtype','taxamount','trackingname1','trackingoption1','trackingname2','trackingoption2','currency'];
+
+const norm = s => String(s == null ? '' : s).replace(/^\*/, '').replace(/\s+/g, '').trim().toLowerCase();
+
+function fmtDate(d, fmt) {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return fmt === 'MM/dd/yyyy' ? `${mm}/${dd}/${yyyy}` : `${dd}/${mm}/${yyyy}`;
+}
+// OpenProd exports dd/MM/yyyy → robust parsing
+function parseSrcDate(s) {
+  s = String(s == null ? '' : s).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let a = +m[1], b = +m[2], y = +m[3];
+    if (y < 100) y += 2000;
+    let day, mon;
+    if (a > 12 && b <= 12) { day = a; mon = b; }
+    else if (b > 12 && a <= 12) { day = b; mon = a; }
+    else { day = a; mon = b; }
+    const d = new Date(y, mon - 1, day);
+    return isNaN(+d) ? null : d;
+  }
+  m = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (m) { const d = new Date(+m[1], +m[2] - 1, +m[3]); return isNaN(+d) ? null : d; }
+  const d = new Date(s);
+  return isNaN(+d) ? null : d;
+}
+const reDate = (s, fmt) => { const d = parseSrcDate(s); return d ? fmtDate(d, fmt) : String(s == null ? '' : s); };
+// Xero mis-parses quoted fields → strip commas, line breaks and quotes
+const sanitize = v => String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').replace(/,/g, ' ').replace(/"/g, '').replace(/\s+/g, ' ').trim();
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file-input');
+const fileInfo = document.getElementById('file-info');
+const sheetField = document.getElementById('sheet-field');
+const sheetSelect = document.getElementById('sheet-select');
+const opts = document.getElementById('opts');
+const convertBtn = document.getElementById('convert');
+const statusEl = document.getElementById('status');
+
+let workbook = null, fileName = '';
+
+function showStatus(msg, type) { statusEl.textContent = msg; statusEl.className = 'status ' + (type || ''); }
+
+function handleFile(f) {
+  showStatus('', '');
+  if (!f.name.match(/\.(xls|xlsx)$/i)) { showStatus('Unsupported format — use a .xls or .xlsx file.', 'error'); return; }
+  fileName = f.name;
+  fileInfo.innerHTML = '<strong>' + f.name + '</strong> — ' + (f.size / 1024).toFixed(1) + ' KB';
+  fileInfo.style.display = 'block';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      sheetSelect.innerHTML = workbook.SheetNames.map(s => `<option value="${s}">${s}</option>`).join('');
+      sheetField.style.display = workbook.SheetNames.length > 1 ? 'block' : 'none';
+      opts.style.display = 'flex';
+      convertBtn.style.display = 'block';
+    } catch { showStatus('Error reading the file.', 'error'); }
+  };
+  reader.readAsArrayBuffer(f);
+}
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('hover'); const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+convertBtn.addEventListener('click', () => {
+  if (!workbook) return;
+  try {
+    const ws = workbook.Sheets[sheetSelect.value];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, blankrows: false });
+    const headerIdx = rows.findIndex(r => Array.isArray(r) && r.some(c => norm(c) === 'contactname') && r.some(c => norm(c) === 'currency'));
+    if (headerIdx === -1) { showStatus('Header not found (ContactName / Currency columns).', 'error'); return; }
+    const header = rows[headerIdx];
+    const colMap = {};
+    header.forEach((c, i) => { const k = norm(c); if (!(k in colMap)) colMap[k] = i; });
+    const fmt = document.getElementById('datefmt').value;
+    const tax = document.getElementById('taxtype').value.trim();
+    const out = [XERO_HEADER];
+    let n = 0;
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!Array.isArray(r) || r.length === 0) continue;
+      const get = key => { const idx = colMap[key]; return idx == null || r[idx] == null ? '' : String(r[idx]); };
+      if (norm(get('contactname')) === 'contactname') continue;
+      const contact = get('contactname').trim();
+      if (!contact) continue;
+      n++;
+      const line = SRC_KEYS.map(key => {
+        if (key === 'invoicedate') return reDate(get('invoicedate'), fmt);
+        if (key === 'duedate') return reDate(get('duedate'), fmt);
+        if (key === 'taxtype') { const v = get('taxtype').trim(); return v || tax; }
+        return get(key);
+      });
+      out.push(line);
+    }
+    if (n === 0) { showStatus('No bill lines found.', 'error'); return; }
+    const csv = out.map(row => row.map(sanitize).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName.replace(/\.(xls|xlsx)$/i, '') + '_XERO.csv'; a.click();
+    URL.revokeObjectURL(url);
+    showStatus(n + ' bill(s) generated — CSV downloaded.', 'success');
+  } catch (err) {
+    showStatus('Conversion error: ' + err.message, 'error');
+  }
+});
+</script>
+</body>
+</html>
