@@ -131,6 +131,11 @@
           <div class="hint2">The <code>reference</code> field of the Amazon supplier record, not its name.</div>
         </div>
         <div>
+          <label>Supplier name</label>
+          <input type="text" id="a-suppliername" value="Amazon" placeholder="Amazon">
+          <div class="hint2">Readable name, used in the order header description only.</div>
+        </div>
+        <div>
           <label>Product code</label>
           <input type="text" id="a-product" value="US - Office Expenses" placeholder="US - Office Expenses">
           <div class="hint2">Carried by every order line.</div>
@@ -150,11 +155,12 @@
           <input type="text" id="a-tax" value="" placeholder="(left to the product default)">
           <div class="hint2">Its description, not its name. Empty lets OpenProd apply the product default.</div>
         </div>
-        <div>
+        <div class="full">
           <label>Header description</label>
           <select id="a-desc">
+            <option value="ref">Date · supplier · order reference</option>
             <option value="first">First item name</option>
-            <option value="count">Amazon - N items</option>
+            <option value="count">Supplier - N items</option>
           </select>
           <div class="hint2">Order header only — each line always carries its own item name.</div>
         </div>
@@ -497,11 +503,19 @@ function buildOrders(rows) {
   return { orders, warnings, skipped, stats: { srcRows: rows.length - 1, orders: orders.length, lines, ht, tax, ttc } };
 }
 
-// The OpenProd order carries a single description field for N items. Two
-// options: the first item, or the count.
-function headDescription(o, mode) {
-  if (o.lines.length === 1) return o.lines[0].title;
-  return mode === 'count' ? 'Amazon - ' + o.lines.length + ' items' : o.lines[0].title;
+// The OpenProd order carries a single description field for N items. The
+// default identifies the order — date, supplier, Amazon reference — rather than
+// naming one item, which would say nothing about the other lines. The two older
+// choices stay available.
+// Date in MM/DD/YYYY, as the US base displays it, and in UTC like the data.
+const fmtUS = d => String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + String(d.getUTCDate()).padStart(2, '0') + '/' + d.getUTCFullYear();
+
+function headDescription(o, opts) {
+  if (opts.desc === 'first') return o.lines[0].title;
+  if (opts.desc === 'count') {
+    return o.lines.length === 1 ? o.lines[0].title : (opts.supplierName || 'Amazon') + ' - ' + o.lines.length + ' items';
+  }
+  return fmtUS(o.date) + ' - ' + (opts.supplierName || 'Amazon') + ' - ' + o.orderId;
 }
 
 // ── Workbook ──
@@ -535,7 +549,7 @@ function buildWorkbook(res, o) {
       ord.purchaser,                     // F
       o.address || '',                   // G
       o.state || '',                     // H
-      headDescription(ord, o.desc),      // I — source_document
+      headDescription(ord, o),           // I — source_document
       o.affair || '',                    // J
     ]);
     for (const ln of ord.lines) {
@@ -673,7 +687,8 @@ aBtn.addEventListener('click', () => {
   if (!amzRes) return;
   try {
     const o = {
-      supplier: document.getElementById('a-supplier').value.trim(),
+      supplier:     document.getElementById('a-supplier').value.trim(),
+      supplierName: document.getElementById('a-suppliername').value.trim(),
       product:  document.getElementById('a-product').value.trim(),
       affair:   document.getElementById('a-affair').value.trim(),
       unit:     document.getElementById('a-unit').value.trim(),
