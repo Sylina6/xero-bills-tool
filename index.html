@@ -49,6 +49,7 @@
   .grid { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
   .grid .full { grid-column: 1 / -1; }
   .hint2 { font-size: 11px; color: #6b7699; margin-top: 5px; line-height: 1.5; }
+  .ref { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; color: #f59e0b; padding: 9px 0 0; word-break: break-all; }
   .warn { display: none; margin-top: 18px; border-left: 2px solid #f59e0b; padding-left: 12px; font-size: 12.5px; color: #a8b2cc; line-height: 1.65; }
   .warn div + div { margin-top: 5px; }
   .after { margin-top: 14px; font-size: 11.5px; color: #6b7699; line-height: 1.7; }
@@ -110,7 +111,7 @@
     </div>
   </div>
 
-  <!-- ══════════ PAGE 2 — Amazon → OpenProd purchase orders ══════════ -->
+  <!-- ══════════ PAGE 2 — Amazon → OpenProd purchase order ══════════ -->
   <div class="page" id="page-amz">
     <div class="card">
       <div class="drop" id="a-drop">
@@ -133,7 +134,7 @@
         <div>
           <label>Supplier name</label>
           <input type="text" id="a-suppliername" value="Amazon" placeholder="Amazon">
-          <div class="hint2">Readable name, used in the order header description only.</div>
+          <div class="hint2">Readable name, appended to the supplier order reference.</div>
         </div>
         <div>
           <label>Product code</label>
@@ -156,13 +157,11 @@
           <div class="hint2">Its description, not its name. Empty lets OpenProd apply the product default.</div>
         </div>
         <div class="full">
-          <label>Header description</label>
-          <select id="a-desc">
-            <option value="ref">Date · supplier · order reference</option>
-            <option value="first">First item name</option>
-            <option value="count">Supplier - N items</option>
-          </select>
-          <div class="hint2">Order header only — each line always carries its own item name.</div>
+          <label>Purchase order</label>
+          <div class="ref" id="a-ref">—</div>
+          <div class="hint2">One single order for the whole report, identified by its date range: supplier order
+            reference — which is the import's modification key — and header description. Each line keeps its own
+            item name and its own order date.</div>
         </div>
       </div>
 
@@ -175,8 +174,8 @@
     <div class="after">
       Then in OpenProd, on the <strong>Wandercraft_US</strong> base: Settings › Import and export › Excel import › Batch ›
       Import Batch. Load the workbook on the processing line, pick the <code>Amazon - Purchase order</code> importer,
-      then Draft › Import. The <code>Lignes</code> sheet has no modification key: delete a purchase order before
-      re-importing it, otherwise its lines are appended instead of replaced.
+      then Draft › Import. The <code>Lignes</code> sheet has no modification key: delete the purchase order before
+      re-importing the same period, otherwise its lines are appended instead of replaced.
     </div>
   </div>
 
@@ -194,8 +193,8 @@ const PAGES = {
   },
   amz: {
     tab: 'tab-amz', page: 'page-amz',
-    title: 'Amazon → OpenProd · Purchase orders',
-    sub: 'WDC INC — turns the Amazon Business reconciliation report into an OpenProd Excel import.',
+    title: 'Amazon → OpenProd · Purchase order',
+    sub: 'WDC INC — turns the Amazon Business reconciliation report into a single OpenProd purchase order.',
   },
 };
 function showPage(key) {
@@ -334,7 +333,7 @@ convertBtn.addEventListener('click', () => {
 
 
 /* ══════════════════════════════════════════════════════════════
-   PAGE 2 — Amazon reconciliation report → OpenProd purchase orders
+   PAGE 2 — Amazon reconciliation report → ONE OpenProd purchase order
 
    Target: the "Amazon - Purchase order" Excel importer on the
    Wandercraft_US base. It reads two sheets BY NAME and their columns
@@ -437,6 +436,10 @@ const amzNum = s => {
   return isNaN(n) ? NaN : n;
 };
 
+// Amazon's amounts are to the cent. Adding them up without rounding drags the
+// binary residue (55.150000000000006) all the way into the workbook.
+const r2 = n => Math.round(n * 100) / 100;
+
 // ── Grouping ──
 // One Amazon order = several item rows sharing the Order ID. Refunds and rows
 // without a quantity produce no purchase order line: they are set aside and
@@ -449,7 +452,8 @@ function buildOrders(rows) {
 
   const at = (r, k) => (cols[k] < 0 ? '' : String(r[cols[k]] == null ? '' : r[cols[k]]).trim());
   const byId = new Map();
-  let ht = 0, tax = 0, ttc = 0;
+  let gross = 0, adjustments = 0, ht = 0, tax = 0, ttc = 0;
+  const noNet = [];
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i], rowNo = i + 1;
@@ -478,89 +482,186 @@ function buildOrders(rows) {
 
     const lineTax = amzNum(at(r, 'taxAmount'));
     const lineNet = amzNum(at(r, 'netTotal'));
+
+    // The amount actually billed is not qty × unit price: Amazon adds discounts,
+    // shipping, gift wrap and regulatory fees, each in its own column. Rather
+    // than adding them one by one — and missing one the day Amazon adds another
+    // — it is read where it is exact, the net minus the tax, and the imported
+    // unit price follows from it. Without this the OpenProd order lands above
+    // the statement, by the amount of the discounts.
+    const lineGross = r2(qty * unitPrice);
+    const hasNet = isFinite(lineNet) && isFinite(lineTax) && lineNet !== 0;
+    if (!hasNet) noNet.push(rowNo);
+    const netExclTax = hasNet ? r2(lineNet - lineTax) : lineGross;
+
     o.lines.push({
       seq: (o.lines.length + 1) * 10,
       title: at(r, 'title'),
       asin: at(r, 'asin'),
       qty, unitPrice,
+      netUnitPrice: r2(netExclTax / qty),   // the price that gets imported
+      gross: lineGross,
+      netExclTax,
+      adjustment: r2(netExclTax - lineGross),
       taxAmount: isFinite(lineTax) ? lineTax : 0,
       netTotal: isFinite(lineNet) ? lineNet : 0,
     });
-    ht += qty * unitPrice;
-    tax += isFinite(lineTax) ? lineTax : 0;
-    ttc += isFinite(lineNet) ? lineNet : 0;
+    gross = r2(gross + lineGross);
+    adjustments = r2(adjustments + (netExclTax - lineGross));
+    ht = r2(ht + netExclTax);
+    tax = r2(tax + (isFinite(lineTax) ? lineTax : 0));
+    ttc = r2(ttc + (isFinite(lineNet) ? lineNet : 0));
   }
 
   const orders = Array.from(byId.values());
   const noBuyer = orders.filter(o => !o.purchaser).map(o => o.orderId);
   if (noBuyer.length) warnings.push('no purchaser on ' + noBuyer.length + ' order(s): ' + noBuyer.slice(0, 5).join(', ') + (noBuyer.length > 5 ? '…' : ''));
   const buyers = Array.from(new Set(orders.map(o => o.purchaser).filter(Boolean)));
-  if (buyers.length > 1) warnings.push(buyers.length + ' distinct purchasers: ' + buyers.join(', ') + '. Each must exist in OpenProd under that exact name, otherwise the import stops on column F.');
+  if (buyers.length > 1) warnings.push(buyers.length + ' distinct purchasers: ' + buyers.join(', ') + '. The merged order carries only one, the most frequent; it must exist in OpenProd under that exact name, otherwise the import stops on column F.');
   const currencies = Array.from(new Set(orders.map(o => o.currency).filter(Boolean)));
   if (currencies.length > 1) warnings.push('several currencies in the file: ' + currencies.join(', '));
 
-  const lines = orders.reduce((n, o) => n + o.lines.length, 0);
-  return { orders, warnings, skipped, stats: { srcRows: rows.length - 1, orders: orders.length, lines, ht, tax, ttc } };
+  const allLines = [];
+  for (const o of orders) for (const l of o.lines) allLines.push(l);
+  const discounted = allLines.filter(l => l.adjustment !== 0);
+  if (discounted.length) {
+    warnings.push('discounts, shipping and fees: ' + adjustments.toFixed(2) + ' over ' + discounted.length + ' line(s), deducted from the imported unit price');
+  }
+  if (noNet.length) {
+    warnings.push('"Net total" missing on ' + noNet.length + ' line(s) (' + noNet.slice(0, 5).join(', ') + (noNet.length > 5 ? '…' : '') + '): the catalogue price is taken as is, any discount included');
+  }
+  // A unit price holds two decimals; on a line of quantity > 1 the division can
+  // leave a cent on the floor. Better said than swallowed.
+  const residual = r2(allLines.reduce((s, l) => s + (l.qty * l.netUnitPrice - l.netExclTax), 0));
+  if (residual !== 0) {
+    warnings.push('unit price rounding: ' + residual.toFixed(2) + ' off the total excluding tax');
+  }
+
+  return { orders, warnings, skipped, stats: { srcRows: rows.length - 1, orders: orders.length, lines: allLines.length, gross, adjustments, ht, tax, ttc } };
 }
 
-// The OpenProd order carries a single description field for N items. The
-// default identifies the order — date, supplier, Amazon reference — rather than
-// naming one item, which would say nothing about the other lines. The two older
-// choices stay available.
+// ── The merged purchase order ──
+// One purchase order per reconciliation report, no longer one per Amazon order:
+// Amazon bills the period, not the parcel, and one OpenProd order per parcel
+// made the reconciliation unreadable. The report window becomes the order's
+// identity — its description, and its supplier order reference suffixed with
+// the supplier name, which is what the importer matches on.
 // Date in MM/DD/YYYY, as the US base displays it, and in UTC like the data.
 const fmtUS = d => String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + String(d.getUTCDate()).padStart(2, '0') + '/' + d.getUTCFullYear();
 
-function headDescription(o, opts) {
-  if (opts.desc === 'first') return o.lines[0].title;
-  if (opts.desc === 'count') {
-    return o.lines.length === 1 ? o.lines[0].title : (opts.supplierName || 'Amazon') + ' - ' + o.lines.length + ' items';
+const formatPeriod = p => (+p.from === +p.to ? fmtUS(p.from) : fmtUS(p.from) + ' - ' + fmtUS(p.to));
+
+// The report name already carries the window asked of Amazon:
+// reconciliation_from_20260901_to_20260914_….csv. It is preferred over the
+// order dates: it does not move when a row is set aside, so the import's
+// modification key stays stable from one run to the next.
+function periodFromFileName(name) {
+  const m = String(name == null ? '' : name).match(/from[_-]?(\d{4})(\d{2})(\d{2}).*?to[_-]?(\d{4})(\d{2})(\d{2})/i);
+  if (!m) return null;
+  const ok = (mo, d) => mo >= 1 && mo <= 12 && d >= 1 && d <= 31;
+  if (!ok(+m[2], +m[3]) || !ok(+m[5], +m[6])) return null;
+  return { from: utcDate(+m[1], +m[2], +m[3]), to: utcDate(+m[4], +m[5], +m[6]) };
+}
+
+function periodOf(orders, override) {
+  if (override) return override;
+  if (!orders.length) return null;
+  let from = orders[0].date, to = orders[0].date;
+  for (const o of orders) {
+    if (+o.date < +from) from = o.date;
+    if (+o.date > +to) to = o.date;
   }
-  return fmtUS(o.date) + ' - ' + (opts.supplierName || 'Amazon') + ' - ' + o.orderId;
+  return { from, to };
+}
+
+function mergePo(orders, opts) {
+  const period = periodOf(orders, opts.period);
+  if (!period) return null;
+  const label = formatPeriod(period);
+
+  // The header carries a single purchaser: the most frequent one, ties broken
+  // by order of appearance. The per-order detail stays in the CONTROL sheet,
+  // and every purchaser left out is reported.
+  const tally = new Map();
+  for (const o of orders) if (o.purchaser) tally.set(o.purchaser, (tally.get(o.purchaser) || 0) + 1);
+  const purchasers = Array.from(tally.keys());
+  const purchaser = purchasers.reduce((best, p) => ((tally.get(p) || 0) > (tally.get(best) || 0) ? p : best), purchasers[0] || '');
+
+  // Every line now lives under a single order, so sequences are renumbered end
+  // to end: the original ones restarted at 10 on each Amazon order and would
+  // have collided.
+  const lines = [];
+  for (const o of orders) for (const l of o.lines) lines.push(Object.assign({}, l, { orderId: o.orderId, date: o.date }));
+  lines.sort((a, b) => (+a.date - +b.date) || a.orderId.localeCompare(b.orderId) || a.seq - b.seq);
+  lines.forEach((l, i) => { l.seq = (i + 1) * 10; });
+
+  return {
+    ref: label + ' - ' + (opts.supplierName || 'Amazon'),   // columns A and D
+    description: label,                                     // column I
+    period,
+    date: period.to,                                        // column E — dated at the period end
+    purchaser, purchasers, lines,
+  };
 }
 
 // ── Workbook ──
 // Built with SheetJS, already loaded for the Xero page — no second library.
-function sheetFromAoa(aoa, widths, dateCols, mergeTo) {
-  const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
-  ws['!cols'] = widths.map(w => ({ wch: w }));
-  if (mergeTo > 0) ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: mergeTo } }];
-  // Date cells are written as real dates, and displayed ISO so that a reader
-  // never has to guess between a US and a EU reading.
-  for (let r = 2; r < aoa.length; r++) {
-    for (const c of dateCols) {
-      const ref = XLSX.utils.encode_cell({ r, c });
-      if (ws[ref] && ws[ref].t === 'd') ws[ref].z = 'yyyy-mm-dd';
+// SheetJS turns a date into an Excel serial through its LOCAL representation:
+// on a machine set to Eastern Time, a UTC midnight falls back to 20:00 the day
+// before, and Excel then reads D-1 — every expected date one day early. So the
+// serial is computed here, in UTC, and written as a plain number displayed as
+// a date.
+const EXCEL_EPOCH = 25569;   // 1970-01-01, in Excel's own day count
+function fixDates(ws) {
+  for (const ref of Object.keys(ws)) {
+    if (ref[0] === '!') continue;
+    const cell = ws[ref];
+    if (cell.t === 'd' && cell.v instanceof Date) {
+      cell.t = 'n';
+      cell.v = cell.v.getTime() / 86400000 + EXCEL_EPOCH;
+      cell.z = 'yyyy-mm-dd';   // ISO, so no reader has to guess US or EU
+      delete cell.w;
     }
   }
   return ws;
 }
 
+function sheetFromAoa(aoa, widths, mergeTo) {
+  const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+  ws['!cols'] = widths.map(w => ({ wch: w }));
+  if (mergeTo > 0) ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: mergeTo } }];
+  return fixDates(ws);
+}
+
 function buildWorkbook(res, o) {
   const head = [[BANNER], HEAD_HEADER.slice()];
   const line = [[BANNER], LINE_HEADER.slice()];
+  const po = mergePo(res.orders, o);
 
-  for (const ord of res.orders) {
+  // A single header row: every Amazon order of the period is folded into one
+  // purchase order.
+  if (po) {
     head.push([
-      ord.orderId,                       // A — kept so B…J keep their position
+      po.ref,                            // A — kept so B…J keep their position
       o.supplier,                        // B — supplier reference code
       o.type || '',                      // C
-      ord.orderId,                       // D — ref_order, the import's modification key
-      ord.date,                          // E
-      ord.purchaser,                     // F
+      po.ref,                            // D — ref_order, the import's modification key
+      po.date,                           // E
+      po.purchaser,                      // F
       o.address || '',                   // G
       o.state || '',                     // H
-      headDescription(ord, o),           // I — source_document
+      po.description,                    // I — source_document, the date range
       o.affair || '',                    // J
     ]);
-    for (const ln of ord.lines) {
+    for (const ln of po.lines) {
       line.push([
-        ord.orderId,                     // A — matched on ref_order
+        po.ref,                          // A — matched on ref_order
         ln.seq,                          // B
         o.product,                       // C
         ln.qty,                          // D
-        ln.unitPrice,                    // E
+        ln.netUnitPrice,                 // E — billed price, net of discounts and fees
         o.tax || '',                     // F
-        ord.date,                        // G
+        ln.date,                         // G — the line keeps its own order date
         o.unit,                          // H
         o.unit,                          // I
         o.unit,                          // J
@@ -570,30 +671,47 @@ function buildWorkbook(res, o) {
   }
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheetFromAoa(head, [22,13,10,22,19,20,20,10,40,10], [4], 9), SHEET_HEAD);
-  XLSX.utils.book_append_sheet(wb, sheetFromAoa(line, [22,10,22,13,12,16,13,14,14,12,52], [6], 10), SHEET_LINE);
+  XLSX.utils.book_append_sheet(wb, sheetFromAoa(head, [30,13,10,30,19,20,20,10,26,10], 9), SHEET_HEAD);
+  XLSX.utils.book_append_sheet(wb, sheetFromAoa(line, [30,10,22,13,12,16,13,14,14,12,52], 10), SHEET_LINE);
 
   // Control sheet — not read by OpenProd. It exists to reconcile against the
-  // Amazon statement before pushing, and to find what was set aside.
+  // Amazon statement before pushing, to find what was set aside, and to walk
+  // back from a line of the merged order to the Amazon order it came from,
+  // which is what the sequence ranges are for.
+  const seqRange = new Map();
+  for (const ln of (po ? po.lines : [])) {
+    const cur = seqRange.get(ln.orderId);
+    seqRange.set(ln.orderId, cur ? [Math.min(cur[0], ln.seq), Math.max(cur[1], ln.seq)] : [ln.seq, ln.seq]);
+  }
+
   const ctrl = [
     ['Generation control'],
     [],
+    ['Purchase order generated', po ? po.ref : '—'],
+    ['Description (source document)', po ? po.description : '—'],
+    ['Purchaser kept', po ? po.purchaser : '—'],
+    ['Amazon orders merged', res.stats.orders],
     ['Rows read from the Amazon file', res.stats.srcRows],
-    ['Orders generated', res.stats.orders],
-    ['Order lines generated', res.stats.lines],
+    ['Order lines generated', po ? po.lines.length : 0],
     ['Rows set aside', res.skipped.length],
-    ['Total excluding tax', res.stats.ht],
+    ['Gross item amount', res.stats.gross],
+    ['Discounts, shipping and fees', res.stats.adjustments],
+    ['Total excluding tax, as imported', res.stats.ht],
     ['Total tax (Amazon statement)', res.stats.tax],
     ['Total including tax (Amazon statement)', res.stats.ttc],
     [],
-    ['Order', 'Date', 'Purchaser', 'Lines', 'Excl. tax', 'Tax', 'Incl. tax'],
+    ['OpenProd recomputes the tax from the product tax code, not from the one on the statement: the order total may differ by a few cents.'],
+    [],
+    ['Amazon order', 'Date', 'Purchaser', 'Lines', 'Sequences', 'Gross', 'Discounts & fees', 'Excl. tax', 'Tax', 'Incl. tax'],
   ];
   for (const ord of res.orders) {
+    const sr = seqRange.get(ord.orderId);
+    const sum = f => r2(ord.lines.reduce((s, l) => s + f(l), 0));
     ctrl.push([
       ord.orderId, ord.date, ord.purchaser, ord.lines.length,
-      ord.lines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
-      ord.lines.reduce((s, l) => s + l.taxAmount, 0),
-      ord.lines.reduce((s, l) => s + l.netTotal, 0),
+      sr ? (sr[0] === sr[1] ? String(sr[0]) : sr[0] + ' – ' + sr[1]) : '',
+      sum(l => l.gross), sum(l => l.adjustment), sum(l => l.netExclTax),
+      sum(l => l.taxAmount), sum(l => l.netTotal),
     ]);
   }
   if (res.skipped.length) {
@@ -604,8 +722,8 @@ function buildWorkbook(res, o) {
     ctrl.push([], ['Warnings']);
     res.warnings.forEach(w => ctrl.push([w]));
   }
-  const wsC = XLSX.utils.aoa_to_sheet(ctrl, { cellDates: true });
-  wsC['!cols'] = [26, 16, 22, 10, 14, 14, 14].map(w => ({ wch: w }));
+  const wsC = fixDates(XLSX.utils.aoa_to_sheet(ctrl, { cellDates: true }));
+  wsC['!cols'] = [34, 26, 22, 8, 13, 12, 16, 12, 12, 13].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, wsC, 'CONTROL');
 
   return wb;
@@ -623,6 +741,7 @@ const aInput = document.getElementById('a-file-input');
 const aInfo = document.getElementById('a-file-info');
 const aStats = document.getElementById('a-stats');
 const aOpts = document.getElementById('a-opts');
+const aRef = document.getElementById('a-ref');
 const aWarn = document.getElementById('a-warn');
 const aBtn = document.getElementById('a-convert');
 const aStatus = document.getElementById('a-status');
@@ -632,22 +751,54 @@ let amzRes = null, amzFileName = '';
 const aShowStatus = (msg, type) => { aStatus.textContent = msg; aStatus.className = 'status ' + (type || ''); };
 const money = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const aVal = id => document.getElementById(id).value.trim();
+
+// The report window is read from the file name and is not editable: it is what
+// makes the order's reference, hence the import's modification key.
+function amzOpts() {
+  return {
+    supplier:     aVal('a-supplier'),
+    supplierName: aVal('a-suppliername'),
+    product:      aVal('a-product'),
+    affair:       aVal('a-affair'),
+    unit:         aVal('a-unit'),
+    tax:          aVal('a-tax'),
+    period:       periodFromFileName(amzFileName),
+    address: '', state: '', type: '',
+  };
+}
+
+function renderRef() {
+  const po = amzRes ? mergePo(amzRes.orders, amzOpts()) : null;
+  aRef.textContent = po ? po.ref : '—';
+  return po;
+}
+// The reference carries the supplier name: it follows the field as it is typed.
+document.getElementById('a-suppliername').addEventListener('input', () => { if (amzRes) renderRef(); });
 
 function renderAmz() {
   if (!amzRes) { aStats.style.display = 'none'; aOpts.style.display = 'none'; aWarn.style.display = 'none'; aBtn.style.display = 'none'; return; }
   const s = amzRes.stats;
+  // Excl. tax is the amount actually billed, discounts deducted: added to the
+  // statement's tax, it lands back on Incl. tax.
   aStats.innerHTML = [
-    ['Orders', String(s.orders)],
+    ['Amazon orders', String(s.orders)],
     ['Lines', String(s.lines)],
+  ].concat(s.adjustments !== 0 ? [['Discounts & fees', '$' + money(s.adjustments)]] : []).concat([
     ['Excl. tax', '$' + money(s.ht)],
     ['Incl. tax', '$' + money(s.ttc)],
     ['Skipped', String(amzRes.skipped.length)],
-  ].map(kv => '<div class="stat"><div class="k">' + kv[0] + '</div><div class="v">' + esc(kv[1]) + '</div></div>').join('');
+  ]).map(kv => '<div class="stat"><div class="k">' + kv[0] + '</div><div class="v">' + esc(kv[1]) + '</div></div>').join('');
   aStats.style.display = 'flex';
   aOpts.style.display = 'grid';
   aBtn.style.display = 'block';
 
+  const po = renderRef();
+
   const bits = amzRes.warnings.map(w => '<div>' + esc(w) + '</div>');
+  if (po && po.purchasers.length > 1) {
+    bits.push('<div>Purchaser kept for the header: <strong>' + esc(po.purchaser) + '</strong>.</div>');
+  }
   if (amzRes.skipped.length) {
     const head = amzRes.skipped.slice(0, 3).map(k => 'row ' + k.row + ' (' + k.reason + ')').join(', ');
     bits.push('<div>' + amzRes.skipped.length + ' row(s) set aside, detailed in the CONTROL sheet: ' + esc(head) + (amzRes.skipped.length > 3 ? '…' : '') + '</div>');
@@ -686,16 +837,7 @@ aInput.addEventListener('change', e => { if (e.target.files[0]) handleAmzFile(e.
 aBtn.addEventListener('click', () => {
   if (!amzRes) return;
   try {
-    const o = {
-      supplier:     document.getElementById('a-supplier').value.trim(),
-      supplierName: document.getElementById('a-suppliername').value.trim(),
-      product:  document.getElementById('a-product').value.trim(),
-      affair:   document.getElementById('a-affair').value.trim(),
-      unit:     document.getElementById('a-unit').value.trim(),
-      tax:      document.getElementById('a-tax').value.trim(),
-      desc:     document.getElementById('a-desc').value,
-      address: '', state: '', type: '',
-    };
+    const o = amzOpts();
     const wb = buildWorkbook(amzRes, o);
     const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true });
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -703,7 +845,8 @@ aBtn.addEventListener('click', () => {
     const a = document.createElement('a');
     a.href = url; a.download = amzOutName(amzFileName); a.click();
     URL.revokeObjectURL(url);
-    aShowStatus(amzRes.stats.orders + ' order(s), ' + amzRes.stats.lines + ' line(s) — workbook downloaded.', 'success');
+    const po = mergePo(amzRes.orders, o);
+    aShowStatus('1 purchase order, ' + (po ? po.lines.length : 0) + ' line(s) from ' + amzRes.stats.orders + ' Amazon order(s) — workbook downloaded.', 'success');
   } catch (err) {
     aShowStatus('Generation error: ' + err.message, 'error');
   }
