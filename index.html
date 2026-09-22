@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenProd converters · Xero bills &amp; Amazon PO</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { min-height: 100vh; background: #0b0f1f; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px 24px; overflow-y: auto; }
+  .wrap { width: 560px; max-width: 100%; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .icon { width: 38px; height: 38px; border-radius: 10px; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  h1 { color: #fff; font-size: 19px; font-weight: 700; margin: 0; }
+  .sub { font-size: 12.5px; color: #8892b0; margin-top: 2px; }
+  .card { background: #141a30; border: 1px solid #232c4d; border-radius: 14px; padding: 26px; margin-top: 18px; }
+  .drop { border: 2px dashed #2f3a60; border-radius: 10px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all .15s; background: #0f1427; color: #8892b0; }
+  .drop.hover { border-color: #f59e0b; background: rgba(245,158,11,0.06); color: #f59e0b; }
+  .drop svg { display: block; margin: 0 auto 10px; }
+  .drop .main { font-size: 14px; }
+  .drop .hint { font-size: 12px; color: #6b7699; margin-top: 4px; opacity: .7; }
+  input[type=file] { display: none; }
+  .file-info { display: none; margin-top: 14px; font-size: 13px; color: #cbd5e1; background: #0f1427; border: 1px solid #232c4d; border-radius: 8px; padding: 9px 12px; word-break: break-all; }
+  .file-info strong { color: #fff; }
+  .field { display: none; margin-top: 16px; }
+  .row2 { display: none; gap: 14px; margin-top: 16px; }
+  .row2 > div { flex: 1; }
+  label { font-size: 11px; font-weight: 600; color: #8892b0; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; display: block; }
+  select, input[type=text] { width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid #2a3354; background: #0f1427; color: #e2e8f4; font-size: 14px; outline: none; }
+  select:focus, input[type=text]:focus { border-color: #f59e0b; }
+  .btn { display: none; margin-top: 22px; width: 100%; padding: 12px; background: #f59e0b; color: #0b0f1f; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; transition: filter .15s; }
+  .btn:hover { filter: brightness(1.1); }
+  .status { display: none; margin-top: 16px; font-size: 13.5px; border-radius: 8px; padding: 10px 14px; }
+  .status.error { display: block; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.35); color: #fca5a5; }
+  .status.success { display: block; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.35); color: #86efac; }
+
+  .tabs { display: flex; gap: 8px; margin-top: 18px; }
+  .tab { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #232c4d; background: #141a30; color: #8892b0; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; transition: all .15s; font-family: inherit; }
+  .tab:hover { border-color: #2f3a60; color: #cbd5e1; }
+  .tab.on { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.45); color: #f59e0b; }
+  .page { display: none; }
+  .page.on { display: block; }
+
+  .stats { display: none; flex-wrap: wrap; gap: 24px; margin-top: 18px; }
+  .stat .k { font-size: 10px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #8892b0; }
+  .stat .v { font-size: 17px; color: #fff; margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .grid { display: none; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+  .grid .full { grid-column: 1 / -1; }
+  .hint2 { font-size: 11px; color: #6b7699; margin-top: 5px; line-height: 1.5; }
+  .ref { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; color: #f59e0b; padding: 9px 0 0; word-break: break-all; }
+  .warn { display: none; margin-top: 18px; border-left: 2px solid #f59e0b; padding-left: 12px; font-size: 12.5px; color: #a8b2cc; line-height: 1.65; }
+  .warn div + div { margin-top: 5px; }
+  .after { margin-top: 14px; font-size: 11.5px; color: #6b7699; line-height: 1.7; }
+  .after code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #8892b0; }
+  @media (max-width: 520px) {
+    .grid { grid-template-columns: 1fr; }
+    .tabs { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div>
+      <h1 id="title">OpenProd → Xero · Supplier bills</h1>
+      <div class="sub" id="subtitle">WDC INC — converts the OpenProd Excel export into a Xero-ready import CSV.</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" id="tab-xero" type="button">OpenProd → Xero</button>
+    <button class="tab" id="tab-amz" type="button">Amazon → OpenProd PO</button>
+  </div>
+
+  <div class="page on" id="page-xero">
+    <div class="card">
+      <div class="drop" id="drop">
+        <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1"/>
+        </svg>
+        <span class="main">Drop your OpenProd Excel export here</span>
+        <div class="hint">or click to select (.xls, .xlsx)</div>
+        <input id="file-input" type="file" accept=".xls,.xlsx">
+      </div>
+
+      <div class="file-info" id="file-info"></div>
+
+      <div class="field" id="sheet-field">
+        <label>Sheet to convert</label>
+        <select id="sheet-select"></select>
+      </div>
+
+      <div class="row2" id="opts">
+        <div>
+          <label>Date format</label>
+          <select id="datefmt">
+            <option value="MM/dd/yyyy">MM/DD/YYYY (US)</option>
+            <option value="dd/MM/yyyy">DD/MM/YYYY (EU)</option>
+          </select>
+        </div>
+        <div>
+          <label>Default TaxType</label>
+          <input type="text" id="taxtype" value="Tax Exempt" placeholder="Tax Exempt">
+        </div>
+      </div>
+
+      <button class="btn" id="convert">Convert &amp; download Xero CSV</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <div class="page" id="page-amz">
+    <div class="card">
+      <div class="drop" id="a-drop">
+        <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1"/>
+        </svg>
+        <span class="main">Drop the Amazon Business reconciliation report</span>
+        <div class="hint">or click to select (reconciliation_from_…_to_….csv)</div>
+        <input id="a-file-input" type="file" accept=".csv,text/csv">
+      </div>
+
+      <div class="file-info" id="a-file-info"></div>
+      <div class="stats" id="a-stats"></div>
+
+      <div class="grid" id="a-opts">
+        <div>
+          <label>Supplier code</label>
+          <input type="text" id="a-supplier" value="PA000016" placeholder="PA000016">
+          <div class="hint2">The <code>reference</code> field of the Amazon supplier record, not its name.</div>
+        </div>
+        <div>
+          <label>Supplier name</label>
+          <input type="text" id="a-suppliername" value="Amazon" placeholder="Amazon">
+          <div class="hint2">Readable name, appended to the supplier order reference.</div>
+        </div>
+        <div>
+          <label>Product code</label>
+          <input type="text" id="a-product" value="US - Office Expenses" placeholder="US - Office Expenses">
+          <div class="hint2">Carried by every order line, and what sets the expense account.</div>
+        </div>
+        <div>
+          <label>Field service buyers</label>
+          <input type="text" id="a-fsbuyers" value="Kevin Fleischmann" placeholder="Kevin Fleischmann">
+          <div class="hint2">Amazon account users whose purchases go into a separate workbook, only when present. Comma-separated, empty for none.</div>
+        </div>
+        <div>
+          <label>Field service product</label>
+          <input type="text" id="a-fsproduct" value="US - Supplies Maintenance" placeholder="US - Supplies Maintenance">
+          <div class="hint2"><code>US - Supplies Maintenance</code> carries account 615700 Maintenance Supplies, where <code>US - Office Expenses</code> carries 606400.</div>
+        </div>
+        <div>
+          <label>Affair code</label>
+          <input type="text" id="a-affair" value="AF0006" placeholder="AF0006">
+          <div class="hint2">Leave empty to import without an affair.</div>
+        </div>
+        <div>
+          <label>Unit name</label>
+          <input type="text" id="a-unit" value="Unit(s)" placeholder="Unit(s)">
+          <div class="hint2">Measure, purchase and price unit.</div>
+        </div>
+        <div>
+          <label>Tax description</label>
+          <input type="text" id="a-tax" value="" placeholder="(left to the product default)">
+          <div class="hint2">Its description, not its name. Empty lets OpenProd apply the product default.</div>
+        </div>
+        <div class="full">
+          <label>Purchase orders</label>
+          <div class="ref" id="a-ref">—</div>
+          <div class="hint2">Identified by the report's date range: supplier order reference — which is the import's modification key — and header description. OpenProd stores that reference in 32 characters and silently cuts the rest, so it is kept short and the field service marker comes first. Field service purchases go into their own order, on the maintenance supplies account; everything else goes into one. Each line keeps its own item name and its own order date.</div>
+        </div>
+      </div>
+
+      <div class="warn" id="a-warn"></div>
+
+      <button class="btn" id="a-convert">Generate &amp; download OpenProd file(s)</button>
+      <div class="hint2">One general file. A separate Field service Kevin file is generated only when matching lines exist. Empty files are not generated.</div>
+      <div class="status" id="a-status"></div>
+    </div>
+
+    <div class="after">
+      Then in OpenProd, on the <strong>Wandercraft_US</strong> base: Settings › Import and export › Excel import › Batch › Import Batch.
+      Load the workbook on the processing line, pick the <code>Amazon - Purchase order</code> importer, then Draft › Import.
+      The <code>Lignes</code> sheet has no modification key: delete the purchase order before re-importing the same period,
+      otherwise its lines are appended instead of replaced.
+    </div>
+  </div>
+
+</div>
+
+<script>
+const PAGES = {
+  xero: {
+    tab: 'tab-xero',
+    page: 'page-xero',
+    title: 'OpenProd → Xero · Supplier bills',
+    sub: 'WDC INC — converts the OpenProd Excel export into a Xero-ready import CSV.',
+  },
+  amz: {
+    tab: 'tab-amz',
+    page: 'page-amz',
+    title: 'Amazon → OpenProd · Purchase order',
+    sub: 'WDC INC — turns the Amazon Business reconciliation report into OpenProd purchase orders: office expenses, and field service on its own account.',
+  },
+};
+
+function showPage(key) {
+  for (const k of Object.keys(PAGES)) {
+    const p = PAGES[k];
+    document.getElementById(p.tab).classList.toggle('on', k === key);
+    document.getElementById(p.page).classList.toggle('on', k === key);
+  }
+  document.getElementById('title').textContent = PAGES[key].title;
+  document.getElementById('subtitle').textContent = PAGES[key].sub;
+}
+
+document.getElementById('tab-xero').addEventListener('click', () => showPage('xero'));
+document.getElementById('tab-amz').addEventListener('click', () => showPage('amz'));
+
+/* OpenProd → Xero */
+
+const XERO_HEADER = ['*ContactName','EmailAddress','POAddressLine1','POAddressLine2','POAddressLine3','POAddressLine4','POCity','PORegion','POPostalCode','POCountry','*InvoiceNumber','*InvoiceDate','*DueDate','Total','InventoryItemCode','Description','*Quantity','*UnitAmount','*AccountCode','*TaxType','TaxAmount','TrackingName1','TrackingOption1','TrackingName2','TrackingOption2','Currency'];
+const SRC_KEYS = ['contactname','emailaddress','poaddressline1','poaddressline2','poaddressline3','poaddressline4','pocity','poregion','popostalcode','pocountry','invoicenumber','invoicedate','duedate','total','inventoryitemcode','description','quantity','unitamount','accountcode','taxtype','taxamount','trackingname1','trackingoption1','trackingname2','trackingoption2','currency'];
+
+const norm = s => String(s == null ? '' : s).replace(/^\*/, '').replace(/\s+/g, '').trim().toLowerCase();
+
+function fmtDate(d, fmt) {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return fmt === 'MM/dd/yyyy' ? `${mm}/${dd}/${yyyy}` : `${dd}/${mm}/${yyyy}`;
+}
+
+function parseSrcDate(s) {
+  s = String(s == null ? '' : s).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) {
+    let a = +m[1], b = +m[2], y = +m[3];
+    if (y < 100) y += 2000;
+    let day, mon;
+    if (a > 12 && b <= 12) {
+      day = a;
+      mon = b;
+    } else if (b > 12 && a <= 12) {
+      day = b;
+      mon = a;
+    } else {
+      day = a;
+      mon = b;
+    }
+    const d = new Date(y, mon - 1, day);
+    return isNaN(+d) ? null : d;
+  }
+  m = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (m) {
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(+d) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(+d) ? null : d;
+}
+
+const reDate = (s, fmt) => {
+  const d = parseSrcDate(s);
+  return d ? fmtDate(d, fmt) : String(s == null ? '' : s);
+};
+
+const sanitize = v => String(v == null ? '' : v)
+  .replace(/[\r\n]+/g, ' ')
+  .replace(/,/g, ' ')
+  .replace(/"/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file-input');
+const fileInfo = document.getElementById('file-info');
+const sheetField = document.getElementById('sheet-field');
+const sheetSelect = document.getElementById('sheet-select');
+const opts = document.getElementById('opts');
+const convertBtn = document.getElementById('convert');
+const statusEl = document.getElementById('status');
+
+let workbook = null, fileName = '';
+
+function showStatus(msg, type) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status ' + (type || '');
+}
+
+function handleFile(f) {
+  showStatus('', '');
+  if (!f.name.match(/\.(xls|xlsx)$/i)) {
+    showStatus('Unsupported format — use a .xls or .xlsx file.', 'error');
+    return;
+  }
+  fileName = f.name;
+  fileInfo.innerHTML = '<strong>' + f.name + '</strong> — ' + (f.size / 1024).toFixed(1) + ' KB';
+  fileInfo.style.display = 'block';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      sheetSelect.innerHTML = workbook.SheetNames.map(s => `<option value="${s}">${s}</option>`).join('');
+      sheetField.style.display = workbook.SheetNames.length > 1 ? 'block' : 'none';
+      opts.style.display = 'flex';
+      convertBtn.style.display = 'block';
+    } catch {
+      showStatus('Error reading the file.', 'error');
+    }
+  };
+  reader.readAsArrayBuffer(f);
+}
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => {
+  e.preventDefault();
+  drop.classList.add('hover');
+});
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('hover');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+convertBtn.addEventListener('click', () => {
+  if (!workbook) return;
+  try {
+    const ws = workbook.Sheets[sheetSelect.value];
+    const rows = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+      raw: false,
+      blankrows: false
+    });
+    const headerIdx = rows.findIndex(r =>
+      Array.isArray(r) &&
+      r.some(c => norm(c) === 'contactname') &&
+      r.some(c => norm(c) === 'currency')
+    );
+    if (headerIdx === -1) {
+      showStatus('Header not found (ContactName / Currency columns).', 'error');
+      return;
+    }
+
+    const header = rows[headerIdx];
+    const colMap = {};
+    header.forEach((c, i) => {
+      const k = norm(c);
+      if (!(k in colMap)) colMap[k] = i;
+    });
+
+    const fmt = document.getElementById('datefmt').value;
+    const tax = document.getElementById('taxtype').value.trim();
+    const out = [XERO_HEADER];
+    let n = 0;
+
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!Array.isArray(r) || r.length === 0) continue;
+
+      const get = key => {
+        const idx = colMap[key];
+        return idx == null || r[idx] == null ? '' : String(r[idx]);
+      };
+
+      if (norm(get('contactname')) === 'contactname') continue;
+      const contact = get('contactname').trim();
+      if (!contact) continue;
+      n++;
+
+      const line = SRC_KEYS.map(key => {
+        if (key === 'invoicedate') return reDate(get('invoicedate'), fmt);
+        if (key === 'duedate') return reDate(get('duedate'), fmt);
+        if (key === 'taxtype') {
+          const v = get('taxtype').trim();
+          return v || tax;
+        }
+        return get(key);
+      });
+      out.push(line);
+    }
+
+    if (n === 0) {
+      showStatus('No bill lines found.', 'error');
+      return;
+    }
+
+    const csv = out.map(row => row.map(sanitize).join(',')).join('\r\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.replace(/\.(xls|xlsx)$/i, '') + '_XERO.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showStatus(n + ' bill(s) generated — CSV downloaded.', 'success');
+  } catch (err) {
+    showStatus('Conversion error: ' + err.message, 'error');
+  }
+});
+
+/* Amazon → OpenProd */
+
+const SHEET_HEAD = 'Entête';
+const SHEET_LINE = 'Lignes';
+
+const HEAD_HEADER = ['Order reference','Supplier','Type','Supplier order reference','Default expected date','Purchaser','Delivered address','State','Source document (Description)','Affair'];
+const LINE_HEADER = ['Purchase order','Sequence','Product','Quantity in measure unit','Unit price','Taxes','Expected date','Measure unity','Purchases unity','Price unit','Description'];
+
+const BANNER = "OpenProd import — myfab - Commandes d'achat. Rows 1 and 2 are ignored, data starts on row 3. Do not rename the sheet and do not move the columns.";
+
+function parseCsv(text) {
+  const out = [];
+  let row = [], cell = '', quoted = false;
+  const s = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c === '"') {
+        if (s[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else {
+          quoted = false;
+        }
+      } else {
+        cell += c;
+      }
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && s[i + 1] === '\n') i++;
+      row.push(cell);
+      cell = '';
+      if (row.some(v => v !== '')) out.push(row);
+      row = [];
+    } else {
+      cell += c;
+    }
+  }
+
+  row.push(cell);
+  if (row.some(v => v !== '')) out.push(row);
+  return out;
+}
+
+const AMZ_HEADER = {
+  orderDate: ['Order Date'],
+  orderId: ['Order ID'],
+  user: ['Account User'],
+  txType: ['Transaction Type'],
+  currency: ['Currency'],
+  qty: ['Shipment Quantity'],
+  unitPrice: ['Unit price excl. tax'],
+  taxAmount: ['Total tax amount'],
+  netTotal: ['Net total'],
+  asin: ['ASIN'],
+  title: ['Title'],
+};
+
+const AMZ_REQUIRED = ['orderId', 'orderDate', 'qty', 'unitPrice', 'title'];
+
+const stripAccents = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const normHeader = s => stripAccents(String(s == null ? '' : s))
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '');
+
+function resolveAmzCols(headerRow) {
+  const byName = new Map();
+  headerRow.forEach((h, i) => {
+    const k = normHeader(h);
+    if (k && !byName.has(k)) byName.set(k, i);
+  });
+
+  const cols = {}, missing = [];
+  for (const key of Object.keys(AMZ_HEADER)) {
+    const hit = AMZ_HEADER[key]
+      .map(n => byName.has(normHeader(n)) ? byName.get(normHeader(n)) : -1)
+      .find(i => i >= 0);
+    cols[key] = hit == null ? -1 : hit;
+    if (cols[key] < 0 && AMZ_REQUIRED.indexOf(key) >= 0) missing.push(key);
+  }
+  return { cols, missing };
+}
+
+const utcDate = (y, m1, d) => new Date(Date.UTC(y, m1 - 1, d));
+
+function parseAmzDate(s) {
+  const m = String(s == null ? '' : s).trim().match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (!m) return null;
+  let mon = +m[1], day = +m[2];
+  if (mon > 12 && day <= 12) {
+    const t = mon;
+    mon = day;
+    day = t;
+  }
+  if (mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+  const d = utcDate(+m[3], mon, day);
+  return isNaN(+d) ? null : d;
+}
+
+const amzNum = s => {
+  const v = String(s == null ? '' : s).replace(/\s/g, '').replace(',', '.');
+  if (!v) return NaN;
+  const n = Number(v);
+  return isNaN(n) ? NaN : n;
+};
+
+const r2 = n => Math.round(n * 100) / 100;
+
+function buildOrders(rows) {
+  const warnings = [], skipped = [];
+  if (rows.length < 2) throw new Error('Empty file, or no data row.');
+  const { cols, missing } = resolveAmzCols(rows[0]);
+  if (missing.length) {
+    throw new Error('Columns missing from the Amazon file: ' + missing.join(', '));
+  }
+
+  const at = (r, k) => (
+    cols[k] < 0 ? '' : String(r[cols[k]] == null ? '' : r[cols[k]]).trim()
+  );
+
+  const byId = new Map();
+  let gross = 0, adjustments = 0, ht = 0, tax = 0, ttc = 0;
+  const noNet = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i], rowNo = i + 1;
+    const orderId = at(r, 'orderId');
+    if (!orderId) continue;
+
+    const txType = at(r, 'txType');
+    if (txType && txType.toLowerCase() !== 'charge') {
+      skipped.push({ row: rowNo, orderId, reason: 'transaction type "' + txType + '"' });
+      continue;
+    }
+
+    const qty = amzNum(at(r, 'qty'));
+    if (!isFinite(qty) || qty <= 0) {
+      skipped.push({ row: rowNo, orderId, reason: 'quantity missing or zero' });
+      continue;
+    }
+
+    const unitPrice = amzNum(at(r, 'unitPrice'));
+    if (!isFinite(unitPrice)) {
+      skipped.push({ row: rowNo, orderId, reason: 'unit price missing' });
+      continue;
+    }
+
+    const date = parseAmzDate(at(r, 'orderDate'));
+    if (!date) {
+      skipped.push({
+        row: rowNo,
+        orderId,
+        reason: 'unreadable date "' + at(r, 'orderDate') + '"'
+      });
+      continue;
+    }
+
+    let o = byId.get(orderId);
+    if (!o) {
+      o = {
+        orderId,
+        date,
+        purchaser: at(r, 'user'),
+        currency: at(r, 'currency') || 'USD',
+        lines: []
+      };
+      byId.set(orderId, o);
+    } else if (+o.date !== +date) {
+      if (+date < +o.date) o.date = date;
+      warnings.push('order ' + orderId + ': lines carry different dates, the earliest is kept');
+    }
+
+    const lineTax = amzNum(at(r, 'taxAmount'));
+    const lineNet = amzNum(at(r, 'netTotal'));
+    const lineGross = r2(qty * unitPrice);
+    const hasNet = isFinite(lineNet) && isFinite(lineTax) && lineNet !== 0;
+    if (!hasNet) noNet.push(rowNo);
+    const netExclTax = hasNet ? r2(lineNet - lineTax) : lineGross;
+
+    o.lines.push({
+      seq: (o.lines.length + 1) * 10,
+      title: at(r, 'title'),
+      asin: at(r, 'asin'),
+      qty,
+      unitPrice,
+      netUnitPrice: r2(netExclTax / qty),
+      gross: lineGross,
+      netExclTax,
+      adjustment: r2(netExclTax - lineGross),
+      taxAmount: isFinite(lineTax) ? lineTax : 0,
+      netTotal: isFinite(lineNet) ? lineNet : 0,
+    });
+
+    gross = r2(gross + lineGross);
+    adjustments = r2(adjustments + (netExclTax - lineGross));
+    ht = r2(ht + netExclTax);
+    tax = r2(tax + (isFinite(lineTax) ? lineTax : 0));
+    ttc = r2(ttc + (isFinite(lineNet) ? lineNet : 0));
+  }
+
+  const orders = Array.from(byId.values());
+  const noBuyer = orders.filter(o => !o.purchaser).map(o => o.orderId);
+  if (noBuyer.length) {
+    warnings.push(
+      'no purchaser on ' + noBuyer.length + ' order(s): ' +
+      noBuyer.slice(0, 5).join(', ') + (noBuyer.length > 5 ? '…' : '')
+    );
+  }
+
+  const buyers = Array.from(new Set(orders.map(o => o.purchaser).filter(Boolean)));
+  if (buyers.length > 1) {
+    warnings.push(
+      buyers.length + ' distinct purchasers: ' + buyers.join(', ') +
+      '. Each purchase order carries only one, the most frequent of its group; it must exist in OpenProd under that exact name, otherwise the import stops on column F.'
+    );
+  }
+
+  const currencies = Array.from(new Set(orders.map(o => o.currency).filter(Boolean)));
+  if (currencies.length > 1) {
+    warnings.push('several currencies in the file: ' + currencies.join(', '));
+  }
+
+  const allLines = [];
+  for (const o of orders) {
+    for (const l of o.lines) allLines.push(l);
+  }
+
+  const discounted = allLines.filter(l => l.adjustment !== 0);
+  if (discounted.length) {
+    warnings.push(
+      'discounts, shipping and fees: ' + adjustments.toFixed(2) +
+      ' over ' + discounted.length + ' line(s), deducted from the imported unit price'
+    );
+  }
+
+  if (noNet.length) {
+    warnings.push(
+      '"Net total" missing on ' + noNet.length + ' line(s) (' +
+      noNet.slice(0, 5).join(', ') + (noNet.length > 5 ? '…' : '') +
+      '): the catalogue price is taken as is, any discount included'
+    );
+  }
+
+  const residual = r2(allLines.reduce(
+    (s, l) => s + (l.qty * l.netUnitPrice - l.netExclTax), 0
+  ));
+  if (residual !== 0) {
+    warnings.push('unit price rounding: ' + residual.toFixed(2) + ' off the total excluding tax');
+  }
+
+  return {
+    orders,
+    warnings,
+    skipped,
+    stats: {
+      srcRows: rows.length - 1,
+      orders: orders.length,
+      lines: allLines.length,
+      gross,
+      adjustments,
+      ht,
+      tax,
+      ttc
+    }
+  };
+}
+
+const fmtUS = d =>
+  String(d.getUTCMonth() + 1).padStart(2, '0') + '/' +
+  String(d.getUTCDate()).padStart(2, '0') + '/' +
+  d.getUTCFullYear();
+
+const formatPeriod = p =>
+  +p.from === +p.to ? fmtUS(p.from) : fmtUS(p.from) + ' - ' + fmtUS(p.to);
+
+/*
+  ref_order est un char(32) cote OpenProd, coupe en silence a l'ecriture.
+  « 09/01/2026 - 09/21/2026 - Amazon » fait pile 32 : le suffixe du field service
+  tombait, les deux en-tetes se retrouvaient sous la meme cle de modification, et
+  le second import empilait ses lignes dans le premier bon de commande au lieu
+  d'en creer un. D'ou une reference courte, avec le marqueur AVANT la periode.
+  La description, elle, reste en clair : source_document tient 64 caracteres.
+*/
+const REF_MAX = 32;
+
+const fmtUSShort = d =>
+  String(d.getUTCMonth() + 1).padStart(2, '0') + '/' +
+  String(d.getUTCDate()).padStart(2, '0') + '/' +
+  String(d.getUTCFullYear()).slice(-2);
+
+const formatPeriodShort = p =>
+  +p.from === +p.to ? fmtUSShort(p.from) : fmtUSShort(p.from) + '-' + fmtUSShort(p.to);
+
+function periodFromFileName(name) {
+  const m = String(name == null ? '' : name)
+    .match(/from[_-]?(\d{4})(\d{2})(\d{2}).*?to[_-]?(\d{4})(\d{2})(\d{2})/i);
+  if (!m) return null;
+  const ok = (mo, d) => mo >= 1 && mo <= 12 && d >= 1 && d <= 31;
+  if (!ok(+m[2], +m[3]) || !ok(+m[5], +m[6])) return null;
+  return {
+    from: utcDate(+m[1], +m[2], +m[3]),
+    to: utcDate(+m[4], +m[5], +m[6])
+  };
+}
+
+function periodOf(orders, override) {
+  if (override) return override;
+  if (!orders.length) return null;
+  let from = orders[0].date, to = orders[0].date;
+  for (const o of orders) {
+    if (+o.date < +from) from = o.date;
+    if (+o.date > +to) to = o.date;
+  }
+  return { from, to };
+}
+
+const normName = s => stripAccents(String(s == null ? '' : s))
+  .toLowerCase()
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const parseBuyers = s => String(s == null ? '' : s)
+  .split(/[;,\n]/)
+  .map(v => v.trim())
+  .filter(Boolean);
+
+const isFieldServiceBuyer = (purchaser, opts) =>
+  parseBuyers(opts.fieldServiceBuyers).some(b => normName(b) === normName(purchaser));
+
+function mergePos(orders, opts) {
+  const period = periodOf(orders, opts.period);
+  if (!period) return [];
+  const label = formatPeriod(period);
+  const shortLabel = formatPeriodShort(period);
+  const supplier = opts.supplierName || 'Amazon';
+  const tag = String(opts.fieldServiceLabel || '').trim();
+  const refTag = String(opts.fieldServiceRefTag || '').trim();
+
+  const groups = [
+    {
+      key: 'office',
+      orders: orders.filter(o => !isFieldServiceBuyer(o.purchaser, opts)),
+      product: opts.product,
+      tag: '',
+      refTag: ''
+    },
+    {
+      key: 'field',
+      orders: orders.filter(o => isFieldServiceBuyer(o.purchaser, opts)),
+      product: opts.fieldServiceProduct || opts.product,
+      tag,
+      refTag: refTag || tag
+    },
+  ];
+
+  /*
+    Dernier filet : deux references identiques une fois coupees a 32 restent deux
+    bons de commande distincts, quitte a numeroter. Un import qui fusionne ses
+    en-tetes ne se voit qu'apres coup, dans OpenProd.
+  */
+  const used = new Set();
+  const uniqueRef = parts => {
+    const base = parts.filter(Boolean).join(' ');
+    let ref = base.slice(0, REF_MAX);
+    for (let n = 2; used.has(ref); n++) ref = (base.slice(0, REF_MAX - 2) + '#' + n).slice(0, REF_MAX);
+    used.add(ref);
+    return ref;
+  };
+
+  return groups.filter(g => g.orders.length > 0).map(g => {
+    const tally = new Map();
+    for (const o of g.orders) {
+      if (o.purchaser) tally.set(o.purchaser, (tally.get(o.purchaser) || 0) + 1);
+    }
+
+    const purchasers = Array.from(tally.keys());
+    const purchaser = purchasers.reduce(
+      (best, p) => (tally.get(p) || 0) > (tally.get(best) || 0) ? p : best,
+      purchasers[0] || ''
+    );
+
+    const lines = [];
+    for (const o of g.orders) {
+      for (const l of o.lines) {
+        lines.push(Object.assign({}, l, { orderId: o.orderId, date: o.date }));
+      }
+    }
+    lines.sort((a, b) =>
+      (+a.date - +b.date) ||
+      a.orderId.localeCompare(b.orderId) ||
+      a.seq - b.seq
+    );
+    lines.forEach((l, i) => { l.seq = (i + 1) * 10; });
+
+    return {
+      key: g.key,
+      ref: uniqueRef([supplier, g.refTag, shortLabel]),
+      description: g.tag ? label + ' - ' + g.tag : label,
+      product: g.product,
+      period,
+      date: period.to,
+      purchaser,
+      purchasers,
+      lines,
+      orderIds: g.orders.map(o => o.orderId),
+    };
+  });
+}
+
+const EXCEL_EPOCH = 25569;
+
+function fixDates(ws) {
+  for (const ref of Object.keys(ws)) {
+    if (ref[0] === '!') continue;
+    const cell = ws[ref];
+    if (cell.t === 'd' && cell.v instanceof Date) {
+      cell.t = 'n';
+      cell.v = cell.v.getTime() / 86400000 + EXCEL_EPOCH;
+      cell.z = 'yyyy-mm-dd';
+      delete cell.w;
+    }
+  }
+  return ws;
+}
+
+function sheetFromAoa(aoa, widths, mergeTo) {
+  const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+  ws['!cols'] = widths.map(w => ({ wch: w }));
+  if (mergeTo > 0) {
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: mergeTo } }];
+  }
+  return fixDates(ws);
+}
+
+function buildWorkbook(res, o) {
+  const head = [[BANNER], HEAD_HEADER.slice()];
+  const line = [[BANNER], LINE_HEADER.slice()];
+  const pos = mergePos(res.orders, o);
+
+  for (const po of pos) {
+    head.push([
+      po.ref,
+      o.supplier,
+      o.type || '',
+      po.ref,
+      po.date,
+      po.purchaser,
+      o.address || '',
+      o.state || '',
+      po.description,
+      o.affair || '',
+    ]);
+
+    for (const ln of po.lines) {
+      line.push([
+        po.ref,
+        ln.seq,
+        po.product,
+        ln.qty,
+        ln.netUnitPrice,
+        o.tax || '',
+        ln.date,
+        o.unit,
+        o.unit,
+        o.unit,
+        /*
+          Le numero de commande Amazon en tete de la description : plusieurs
+          commandes vivant sous un meme bon de commande, c'est lui qui ramene la
+          ligne a son achat, a sa livraison et a sa ligne de releve.
+        */
+        ln.orderId ? ln.orderId + ' - ' + ln.title : ln.title,
+      ]);
+    }
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    sheetFromAoa(head, [30,13,10,30,19,20,20,10,26,10], 9),
+    SHEET_HEAD
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    sheetFromAoa(line, [30,10,22,13,12,16,13,14,14,12,52], 10),
+    SHEET_LINE
+  );
+
+  const seqRange = new Map();
+  const poOfOrder = new Map();
+
+  for (const po of pos) {
+    for (const id of po.orderIds) poOfOrder.set(id, po.ref);
+    for (const ln of po.lines) {
+      const cur = seqRange.get(ln.orderId);
+      seqRange.set(
+        ln.orderId,
+        cur ? [Math.min(cur[0], ln.seq), Math.max(cur[1], ln.seq)] : [ln.seq, ln.seq]
+      );
+    }
+  }
+
+  const ctrl = [
+    ['Generation control'],
+    [],
+    ['Purchase orders generated', pos.length],
+  ];
+
+  for (const po of pos) {
+    ctrl.push([
+      '  ' + po.ref,
+      r2(po.lines.reduce((s, l) => s + l.netExclTax, 0))
+    ]);
+    ctrl.push([
+      '     ' + po.lines.length + ' line(s) · ' + po.product +
+      ' · purchaser ' + (po.purchaser || '—'),
+      po.description
+    ]);
+  }
+
+  ctrl.push.apply(ctrl, [
+    ['Amazon orders merged', res.stats.orders],
+    ['Rows read from the Amazon file', res.stats.srcRows],
+    ['Order lines generated', pos.reduce((s, po) => s + po.lines.length, 0)],
+    ['Rows set aside', res.skipped.length],
+    ['Gross item amount', res.stats.gross],
+    ['Discounts, shipping and fees', res.stats.adjustments],
+    ['Total excluding tax, as imported', res.stats.ht],
+    ['Total tax (Amazon statement)', res.stats.tax],
+    ['Total including tax (Amazon statement)', res.stats.ttc],
+    [],
+    ['OpenProd recomputes the tax from the product tax code, not from the one on the statement: the order total may differ by a few cents.'],
+    [],
+    ['Amazon order', 'Purchase order', 'Date', 'Purchaser', 'Lines', 'Sequences', 'Gross', 'Discounts & fees', 'Excl. tax', 'Tax', 'Incl. tax'],
+  ]);
+
+  for (const ord of res.orders) {
+    const sr = seqRange.get(ord.orderId);
+    const sum = f => r2(ord.lines.reduce((s, l) => s + f(l), 0));
+
+    ctrl.push([
+      ord.orderId,
+      poOfOrder.get(ord.orderId) || '',
+      ord.date,
+      ord.purchaser,
+      ord.lines.length,
+      sr ? (sr[0] === sr[1] ? String(sr[0]) : sr[0] + ' – ' + sr[1]) : '',
+      sum(l => l.gross),
+      sum(l => l.adjustment),
+      sum(l => l.netExclTax),
+      sum(l => l.taxAmount),
+      sum(l => l.netTotal),
+    ]);
+  }
+
+  if (res.skipped.length) {
+    ctrl.push([], ['Rows set aside']);
+    res.skipped.forEach(s => ctrl.push(['row ' + s.row, s.orderId, s.reason]));
+  }
+
+  if (res.warnings.length) {
+    ctrl.push([], ['Warnings']);
+    res.warnings.forEach(w => ctrl.push([w]));
+  }
+
+  const wsC = fixDates(XLSX.utils.aoa_to_sheet(ctrl, { cellDates: true }));
+  wsC['!cols'] = [34, 34, 13, 22, 8, 13, 12, 16, 12, 12, 13].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, wsC, 'CONTROL');
+
+  return wb;
+}
+
+function amzOutName(srcName) {
+  const m = srcName.match(/from[_-]?(\d{8}).*?to[_-]?(\d{8})/i);
+  return m
+    ? 'Import_PO_Amazon_' + m[1] + '_' + m[2] + '.xlsx'
+    : 'Import_PO_Amazon.xlsx';
+}
+
+const aDrop = document.getElementById('a-drop');
+const aInput = document.getElementById('a-file-input');
+const aInfo = document.getElementById('a-file-info');
+const aStats = document.getElementById('a-stats');
+const aOpts = document.getElementById('a-opts');
+const aRef = document.getElementById('a-ref');
+const aWarn = document.getElementById('a-warn');
+const aBtn = document.getElementById('a-convert');
+const aStatus = document.getElementById('a-status');
+
+let amzRes = null, amzFileName = '', amzRows = null;
+
+/*
+  Separate source rows before grouping orders:
+  - general workbook for everyone else;
+  - Field Service Kevin workbook only when matching usable lines exist;
+  - no empty workbook.
+*/
+function buildExports(rows, res, opts, name) {
+  const { cols } = resolveAmzCols(rows[0]);
+  const groups = [[], []];
+
+  for (const row of rows.slice(1)) {
+    const buyer = cols.user < 0 ? '' : row[cols.user];
+    groups[isFieldServiceBuyer(buyer, opts) ? 1 : 0].push(row);
+  }
+
+  const exportOpts = Object.assign({}, opts, {
+    period: periodOf(res.orders, opts.period)
+  });
+
+  return groups.flatMap((group, index) => {
+    if (!group.length) return [];
+
+    const part = buildOrders([rows[0], ...group]);
+    if (!part.orders.length) return [];
+
+    const filename = index === 1
+      ? amzOutName(name).replace(/\.xlsx$/, '_Field_Service_Kevin.xlsx')
+      : amzOutName(name);
+
+    return [{
+      filename,
+      workbook: buildWorkbook(part, exportOpts),
+      lines: part.stats.lines
+    }];
+  });
+}
+
+const aShowStatus = (msg, type) => {
+  aStatus.textContent = msg;
+  aStatus.className = 'status ' + (type || '');
+};
+
+const money = n => n.toLocaleString('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+const esc = s => String(s)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+const aVal = id => document.getElementById(id).value.trim();
+
+function amzOpts() {
+  return {
+    supplier: aVal('a-supplier'),
+    supplierName: aVal('a-suppliername'),
+    product: aVal('a-product'),
+    affair: aVal('a-affair'),
+    unit: aVal('a-unit'),
+    tax: aVal('a-tax'),
+    fieldServiceBuyers: aVal('a-fsbuyers'),
+    fieldServiceProduct: aVal('a-fsproduct'),
+    fieldServiceLabel: 'Field service',
+    fieldServiceRefTag: 'FS',
+    period: periodFromFileName(amzFileName),
+    address: '',
+    state: '',
+    type: 'series',
+  };
+}
+
+function renderRef() {
+  const pos = amzRes ? mergePos(amzRes.orders, amzOpts()) : [];
+  aRef.innerHTML = pos.length
+    ? pos.map(po =>
+        '<div>' + esc(po.ref) + '</div>' +
+        '<div class="hint2">' + po.lines.length + ' line(s) · ' +
+        esc(po.product) + ' · ' +
+        esc(po.purchaser || 'no purchaser') + '</div>'
+      ).join('')
+    : '—';
+  return pos;
+}
+
+['a-suppliername', 'a-fsbuyers', 'a-fsproduct', 'a-product'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (amzRes) renderRef();
+  });
+});
+
+function renderAmz() {
+  if (!amzRes) {
+    aStats.style.display = 'none';
+    aOpts.style.display = 'none';
+    aWarn.style.display = 'none';
+    aBtn.style.display = 'none';
+    return;
+  }
+
+  const s = amzRes.stats;
+  aStats.innerHTML = [
+    ['Amazon orders', String(s.orders)],
+    ['Lines', String(s.lines)],
+  ]
+    .concat(s.adjustments !== 0 ? [['Discounts & fees', '$' + money(s.adjustments)]] : [])
+    .concat([
+      ['Excl. tax', '$' + money(s.ht)],
+      ['Incl. tax', '$' + money(s.ttc)],
+      ['Skipped', String(amzRes.skipped.length)],
+    ])
+    .map(kv =>
+      '<div class="stat"><div class="k">' + kv[0] +
+      '</div><div class="v">' + esc(kv[1]) + '</div></div>'
+    ).join('');
+
+  aStats.style.display = 'flex';
+  aOpts.style.display = 'grid';
+  aBtn.style.display = 'block';
+
+  const pos = renderRef();
+  const bits = amzRes.warnings.map(w => '<div>' + esc(w) + '</div>');
+
+  pos.filter(po => po.purchasers.length > 1).forEach(po => {
+    bits.push(
+      '<div>' + esc(po.ref) +
+      ' — purchaser kept for the header: <strong>' +
+      esc(po.purchaser) + '</strong>.</div>'
+    );
+  });
+
+  if (amzRes.skipped.length) {
+    const head = amzRes.skipped.slice(0, 3)
+      .map(k => 'row ' + k.row + ' (' + k.reason + ')')
+      .join(', ');
+    bits.push(
+      '<div>' + amzRes.skipped.length +
+      ' row(s) set aside, detailed in the CONTROL sheet: ' +
+      esc(head) + (amzRes.skipped.length > 3 ? '…' : '') + '</div>'
+    );
+  }
+
+  aWarn.innerHTML = bits.join('');
+  aWarn.style.display = bits.length ? 'block' : 'none';
+}
+
+function handleAmzFile(f) {
+  aShowStatus('', '');
+  if (!f.name.match(/\.csv$/i)) {
+    aShowStatus('Unsupported format — the Amazon Business reconciliation report is a .csv file.', 'error');
+    return;
+  }
+
+  amzFileName = f.name;
+  aInfo.innerHTML = '<strong>' + esc(f.name) + '</strong> — ' + (f.size / 1024).toFixed(1) + ' KB';
+  aInfo.style.display = 'block';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      amzRows = parseCsv(String(e.target.result || ''));
+      amzRes = buildOrders(amzRows);
+      if (!amzRes.orders.length) {
+        amzRes = null;
+        renderAmz();
+        aShowStatus('No usable order in this report.', 'error');
+        return;
+      }
+      renderAmz();
+    } catch (err) {
+      amzRes = null;
+      renderAmz();
+      aShowStatus(err.message, 'error');
+    }
+  };
+  reader.onerror = () => aShowStatus('Error reading the file.', 'error');
+  reader.readAsText(f, 'utf-8');
+}
+
+aDrop.addEventListener('click', () => aInput.click());
+aDrop.addEventListener('dragover', e => {
+  e.preventDefault();
+  aDrop.classList.add('hover');
+});
+aDrop.addEventListener('dragleave', () => aDrop.classList.remove('hover'));
+aDrop.addEventListener('drop', e => {
+  e.preventDefault();
+  aDrop.classList.remove('hover');
+  const f = e.dataTransfer.files[0];
+  if (f) handleAmzFile(f);
+});
+aInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleAmzFile(e.target.files[0]);
+});
+
+aBtn.addEventListener('click', () => {
+  if (!amzRes) return;
+  try {
+    const o = amzOpts();
+    const exports = buildExports(amzRows, amzRes, o, amzFileName);
+
+    for (const item of exports) {
+      const buf = XLSX.write(item.workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+        cellDates: true
+      });
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = item.filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    const nLines = exports.reduce((sum, item) => sum + item.lines, 0);
+    aShowStatus(
+      exports.length + ' file(s), ' + nLines + ' line(s) — ' +
+      exports.map(item => item.filename).join(' + ') + ' downloaded.',
+      'success'
+    );
+  } catch (err) {
+    aShowStatus('Generation error: ' + err.message, 'error');
+  }
+});
+</script>
+</body>
+</html>
